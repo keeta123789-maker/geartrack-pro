@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบจัดการอุปกรณ์และบาร์โค้ด (GearTrack Pro)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body class="bg-slate-100 min-h-screen p-4 md:p-8">
+
+    <div class="max-w-4xl mx-auto space-y-6">
+        <!-- Header -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 text-center">
+            <h1 class="text-2xl font-bold text-slate-800 flex items-center justify-center gap-2">
+                📦 ระบบจัดการอุปกรณ์และบาร์โค้ด (GearTrack Pro)
+            </h1>
+        </div>
+
+        <!-- Notification Banner -->
+        <div id="alertBox" class="hidden p-4 rounded-xl text-white text-center font-medium shadow-md transition-all"></div>
+
+        <!-- Form: Add Equipment -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                📝 เพิ่มอุปกรณ์เข้าคลัง (รันรหัสบาร์โค้ดอัตโนมัติ)
+            </h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">หมวดหมู่ / ตัวอักษรย่อรหัส (Prefix):</label>
+                    <select id="prefixSelect" class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                        <option value="XLR">สายสัญญาณ XLR (XLR)</option>
+                        <option value="MIC">ไมโครโฟน (MIC)</option>
+                        <option value="PWR">สายไฟ / ปลั๊กพาวเวอร์ (PWR)</option>
+                        <option value="SPK">ลำโพง / ตู้ลำโพง (SPK)</option>
+                        <option value="LIGHT">ไฟเวที / Lighting (LIGHT)</option>
+                        <option value="MISC">อุปกรณ์ทั่วไป (MISC)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">ชื่ออุปกรณ์:</label>
+                    <input type="text" id="itemName" placeholder="เช่น สายยาว 10M" class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">จำนวนที่ต้องการสร้าง:</label>
+                    <input type="number" id="itemQuantity" value="1" min="1" class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-semibold text-slate-600 mb-1">ผู้บันทึก:</label>
+                    <input type="text" id="createdByName" placeholder="ชื่อผู้ทำรายการ" class="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-emerald-500 outline-none">
+                </div>
+            </div>
+
+            <button onclick="saveBulkEquipment()" class="w-full mt-5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-emerald-200 transition-all">
+                🚀 บันทึกและรันรหัสบาร์โค้ดอัตโนมัติ
+            </button>
+        </div>
+
+        <!-- Scanner Section -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                📷 สแกนบาร์โค้ดคืนของอัตโนมัติ
+            </h2>
+            <button onclick="toggleScanner()" class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-xl transition-all mb-4">
+                สแกน
+            </button>
+            <div id="reader" class="w-full rounded-xl overflow-hidden hidden"></div>
+        </div>
+
+        <!-- Inventory List -->
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-800 mb-4">📋 รายการอุปกรณ์ทั้งหมด</h2>
+            <div id="equipmentTable" class="space-y-3"></div>
+        </div>
+    </div>
+
+    <script>
+        // ใช้ Base URL อัตโนมัติ (ชี้ไปที่ Render เวลารันออนไลน์)
+        const API_BASE_URL = window.location.origin;
+
+        // โหลดข้อมูลเมื่อเปิดหน้าเว็บ
+        window.onload = function() {
+            loadJobsList();
+            loadEquipmentList();
+        };
+
+        function showAlert(msg, type = 'success') {
+            const box = document.getElementById('alertBox');
+            box.innerText = msg;
+            box.className = `p-4 rounded-xl text-white text-center font-medium shadow-md transition-all ${type === 'success' ? 'bg-emerald-600' : 'bg-rose-600'}`;
+            box.classList.remove('hidden');
+            setTimeout(() => box.classList.add('hidden'), 4000);
+        }
+
+        // โหลดรายการงาน
+        async function loadJobsList() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/jobs`);
+                if (!res.ok) throw new Error("Network error");
+                const jobs = await res.json();
+                console.log("Jobs loaded:", jobs);
+            } catch (err) {
+                console.error("Failed to load jobs:", err);
+                showAlert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", "error");
+            }
+        }
+
+        // โหลดรายการอุปกรณ์
+        async function loadEquipmentList() {
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/equipment`);
+                if (!res.ok) throw new Error("Network error");
+                const items = await res.json();
+                
+                const container = document.getElementById('equipmentTable');
+                if (items.length === 0) {
+                    container.innerHTML = `<p class="text-slate-400 text-center py-4">ยังไม่มีอุปกรณ์ในคลัง</p>`;
+                    return;
+                }
+
+                container.innerHTML = items.map(item => `
+                    <div class="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                        <div>
+                            <span class="font-mono text-xs px-2 py-1 bg-slate-200 text-slate-700 rounded-md font-bold">${item.barcode}</span>
+                            <span class="font-semibold text-slate-800 ml-2">${item.name}</span>
+                        </div>
+                        <span class="text-xs px-2 py-1 rounded-full ${item.status === 'in_stock' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">
+                            ${item.status === 'in_stock' ? 'อยู่ในคลัง' : 'ถูกยืม'}
+                        </span>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error("Failed to load equipment:", err);
+            }
+        }
+
+        // บันทึกอุปกรณ์แบบกลุ่ม
+        async function saveBulkEquipment() {
+            const prefix = document.getElementById('prefixSelect').value;
+            const name = document.getElementById('itemName').value.trim();
+            const quantity = parseInt(document.getElementById('itemQuantity').value);
+            const created_by = document.getElementById('createdByName').value.trim();
+
+            if (!name) {
+                showAlert("กรุณากรอกชื่ออุปกรณ์", "error");
+                return;
+            }
+
+            try {
+                const res = await fetch(`${API_BASE_URL}/api/equipment/bulk`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prefix, name, quantity, created_by })
+                });
+
+                if (res.ok) {
+                    showAlert("บันทึกข้อมูลอุปกรณ์สำเร็จ!");
+                    document.getElementById('itemName').value = '';
+                    loadEquipmentList();
+                } else {
+                    showAlert("เกิดข้อผิดพลาดในการบันทึก", "error");
+                }
+            } catch (err) {
+                console.error("Failed to save:", err);
+                showAlert("ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้", "error");
+            }
+        }
+    </script>
+</body>
+</html>
